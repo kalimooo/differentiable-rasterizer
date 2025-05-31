@@ -41,7 +41,6 @@ bool g_isMouseDragging = false;
 ///////////////////////////////////////////////////////////////////////////////
 GLuint shaderProgram;       // Shader for rendering the final image
 GLuint simpleShaderProgram; // Shader used to draw the shadow map
-GLuint backgroundProgram;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Environment
@@ -57,8 +56,6 @@ vec3 lightPosition;
 vec3 point_light_color = vec3(1.f, 1.f, 1.f);
 
 float point_light_intensity_multiplier = 10000.0f;
-
-
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -87,12 +84,6 @@ void loadShaders(bool is_reload)
 	if(shader != 0)
 	{
 		simpleShaderProgram = shader;
-	}
-
-	shader = labhelper::loadShaderProgram("../project/background.vert", "../project/background.frag", is_reload);
-	if(shader != 0)
-	{
-		backgroundProgram = shader;
 	}
 
 	shader = labhelper::loadShaderProgram("../project/shading.vert", "../project/shading.frag", is_reload);
@@ -145,16 +136,6 @@ void debugDrawLight(const glm::mat4& viewMatrix,
 	labhelper::setUniformSlow(shaderProgram, "modelViewProjectionMatrix",
 	                          projectionMatrix * viewMatrix * modelMatrix);
 	labhelper::render(sphereModel);
-}
-
-
-void drawBackground(const mat4& viewMatrix, const mat4& projectionMatrix)
-{
-	glUseProgram(backgroundProgram);
-	labhelper::setUniformSlow(backgroundProgram, "environment_multiplier", environment_multiplier);
-	labhelper::setUniformSlow(backgroundProgram, "inv_PV", inverse(projectionMatrix * viewMatrix));
-	labhelper::setUniformSlow(backgroundProgram, "camera_pos", cameraPosition);
-	labhelper::drawFullScreenQuad();
 }
 
 
@@ -249,13 +230,9 @@ void display(void)
 	///////////////////////////////////////////////////////////////////////////
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, windowWidth, windowHeight);
-	glClearColor(0.2f, 0.2f, 0.8f, 1.0f);
+	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	{
-		labhelper::perf::Scope s( "Background" );
-		drawBackground(viewMatrix, projMatrix);
-	}
 	{
 		labhelper::perf::Scope s( "Scene" );
 		drawScene( shaderProgram, viewMatrix, projMatrix, lightViewMatrix, lightProjMatrix );
