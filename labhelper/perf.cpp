@@ -573,7 +573,7 @@ void start_timer( time_event_t& e )
 
 void stop_timer( time_event_t& e )
 {
-	event_t& evt = std::any_cast<event_t>(e.gl_data);
+	event_t& evt = *std::any_cast<event_t>(&e.gl_data);
 	glQueryCounter( evt.end, GL_TIMESTAMP );
 }
 
@@ -597,7 +597,7 @@ void sync()
 			rstack.push_back( &c );
 		}
 
-		event_t& ce = std::any_cast<event_t>(e->gl_data);
+		event_t& ce = *std::any_cast<event_t>(&e->gl_data);
 
 		uint64_t start;
 		uint64_t end;
