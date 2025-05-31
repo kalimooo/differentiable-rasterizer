@@ -46,7 +46,6 @@ GLuint simpleShaderProgram; // Shader used to draw the shadow map
 // Environment
 ///////////////////////////////////////////////////////////////////////////////
 float environment_multiplier = 1.5f;
-GLuint environmentMap;
 const std::string envmap_base_name = "001";
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -116,12 +115,6 @@ void initialize()
 	roomModelMatrix = mat4(1.0f);
 	fighterModelMatrix = translate(15.0f * worldUp);
 	landingPadModelMatrix = mat4(1.0f);
-
-	///////////////////////////////////////////////////////////////////////
-	// Load environment map
-	///////////////////////////////////////////////////////////////////////
-	environmentMap = labhelper::loadHdrTexture("../scenes/envmaps/" + envmap_base_name + ".hdr");
-
 
 	glEnable(GL_DEPTH_TEST); // enable Z-buffering
 	glEnable(GL_CULL_FACE);  // enables backface culling
@@ -218,19 +211,11 @@ void display(void)
 	mat4 lightProjMatrix = perspective(radians(45.0f), 1.0f, 25.0f, 100.0f);
 
 	///////////////////////////////////////////////////////////////////////////
-	// Bind the environment map(s) to unused texture units
-	///////////////////////////////////////////////////////////////////////////
-	glActiveTexture(GL_TEXTURE6);
-	glBindTexture(GL_TEXTURE_2D, environmentMap);
-	glActiveTexture(GL_TEXTURE0);
-
-
-	///////////////////////////////////////////////////////////////////////////
 	// Draw from camera
 	///////////////////////////////////////////////////////////////////////////
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, windowWidth, windowHeight);
-	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+	glClearColor(0.2f, 0.2f, 0.8f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	{
