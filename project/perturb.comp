@@ -6,8 +6,44 @@ layout( std430, binding = 3 ) buffer VertexBuffer {
     vec3 positions[];
 };
 
+// Psuedo-random generator courtesy of https://stackoverflow.com/a/17479300
+// A single iteration of Bob Jenkins' One-At-A-Time hashing algorithm.
+uint hash( uint x ) {
+    x += ( x << 10u );
+    x ^= ( x >>  6u );
+    x += ( x <<  3u );
+    x ^= ( x >> 11u );
+    x += ( x << 15u );
+    return x;
+}
+
+// Construct a float with half-open range [0:1] using low 23 bits.
+// All zeroes yields 0.0, all ones yields the next smallest representable value below 1.0.
+float floatConstruct( uint m ) {
+    const uint ieeeMantissa = 0x007FFFFFu; // binary32 mantissa bitmask
+    const uint ieeeOne      = 0x3F800000u; // 1.0 in IEEE binary32
+
+    m &= ieeeMantissa;                     // Keep only mantissa bits (fractional part)
+    m |= ieeeOne;                          // Add fractional part to 1.0
+
+    float  f = uintBitsToFloat( m );       // Range [1:2]
+    return f - 1.5;                        // Range [-0.5:0.5]
+}
+
+// Pseudo-random value in half-open range [-0.5:0.5].
+float random( float x ) { return floatConstruct(hash(floatBitsToUint(x))); }
+
+uniform float currentTime;
+
 void main() {
     uint gid = gl_GlobalInvocationID.x;
     if (gid >= positions.length()) return;
-    positions[gid] *= vec3(1.01);
+
+    float randomX = random(currentTime + gid);
+    float randomY = random(currentTime + (gid << 10));
+    float randomZ = random(currentTime + (gid << 20));
+
+    vec3 randomDir = vec3(randomX, randomY, randomZ);
+
+    positions[gid] += randomDir * vec3(0.001);
 }

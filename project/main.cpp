@@ -134,8 +134,13 @@ void initialize()
 	glEnable(GL_CULL_FACE);  // enables backface culling
 }
 
+
 void perturbVertices() {
 	glUseProgram(computeShaderProgram);
+
+	// For some reason the labhelper version doesn't work??
+	//labhelper::setUniformSlow(shaderProgram, "currentTime", currentTime);
+    glUniform1f(glGetUniformLocation(computeShaderProgram, "currentTime"), currentTime);
 
 	size_t numVertices = sphereModel->m_positions.size();
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, vertexSSBO);
