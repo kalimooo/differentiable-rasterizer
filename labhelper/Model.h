@@ -45,9 +45,9 @@ struct Mesh
 {
 	std::string m_name;
 	uint32_t m_material_idx;
-	// Where this Mesh's vertices start
+	// Where this Mesh's indices start in the global index buffer
 	uint32_t m_start_index;
-	uint32_t m_number_of_vertices;
+	uint32_t m_number_of_indices;
 };
 
 class Model
@@ -66,10 +66,12 @@ public:
 	std::vector<glm::vec3> m_positions;
 	std::vector<glm::vec3> m_normals;
 	std::vector<glm::vec2> m_texture_coordinates;
+	std::vector<uint32_t> m_indices;
 	// Buffers on GPU
 	uint32_t m_positions_bo;
 	uint32_t m_normals_bo;
 	uint32_t m_texture_coordinates_bo;
+	uint32_t m_indices_bo;
 	// Vertex Array Object
 	uint32_t m_vaob;
 };
