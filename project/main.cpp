@@ -73,6 +73,11 @@ labhelper::Model* sphereModel = nullptr;
 
 mat4 roomModelMatrix;
 
+///////////////////////////////////////////////////////////////////////////////
+// Compute shaders
+///////////////////////////////////////////////////////////////////////////////
+GLuint vertexSSBO;
+
 void loadShaders(bool is_reload)
 {
 	GLuint shader = labhelper::loadShaderProgram("../project/simple.vert", "../project/simple.frag", is_reload);
@@ -109,6 +114,14 @@ void initialize()
 	lightPosition = cameraPosition + normalize(cameraDirection - cameraPosition) * 11.5f;
 
 	roomModelMatrix = mat4(1.0f);
+
+	// Create and bind SSBO for vertex positions
+    glGenBuffers(1, &vertexSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, vertexSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sphereModel->m_positions.size() * sizeof(vec3),
+                 sphereModel->m_positions.data(), GL_DYNAMIC_COPY);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, vertexSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
 	glEnable(GL_DEPTH_TEST); // enable Z-buffering
 	glEnable(GL_CULL_FACE);  // enables backface culling
