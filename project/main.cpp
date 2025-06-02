@@ -93,7 +93,7 @@ void loadShaders(bool is_reload)
 		shaderProgram = shader;
 	}
 
-	shader = labhelper::loadComputeShaderProgram("../project/parturb.comp", is_reload);
+	shader = labhelper::loadComputeShaderProgram("../project/perturb.comp", is_reload);
 	if(shader != 0)
 	{
 		computeShaderProgram = shader;
@@ -132,6 +132,29 @@ void initialize()
 
 	glEnable(GL_DEPTH_TEST); // enable Z-buffering
 	glEnable(GL_CULL_FACE);  // enables backface culling
+}
+
+void perturbVertices() {
+	glUseProgram(computeShaderProgram);
+
+	size_t numVertices = sphereModel->m_positions.size();
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, vertexSSBO);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, vertexSSBO);
+	glDispatchCompute(numVertices, 1, 1);
+
+	glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+	// Read back modified vertex data
+	std::vector<vec3> updatedPositions(sphereModel->m_positions.size());
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, vertexSSBO);
+	void* ptr = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
+	memcpy(updatedPositions.data(), ptr, updatedPositions.size() * sizeof(vec3));
+	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+	glBindBuffer(GL_ARRAY_BUFFER, sphereModel->m_positions_bo);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, updatedPositions.size() * sizeof(vec3), updatedPositions.data());
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 void debugDrawLight(const glm::mat4& viewMatrix,
@@ -346,6 +369,8 @@ int main(int argc, char* argv[])
 
 		// Inform imgui of new frame
 		labhelper::newFrame( g_window );
+
+		perturbVertices();
 
 		// render to window
 		display();

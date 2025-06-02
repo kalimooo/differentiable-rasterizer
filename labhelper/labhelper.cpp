@@ -558,46 +558,6 @@ std::string GetShaderProgramInfoLog(GLuint obj)
 	return log;
 }
 
-GLuint loadComputeShaderProgram(const std::string& computeShader, bool allowErrors) {
-	GLuint cShader = glCreateShader(GL_COMPUTE_SHADER);
-
-	std::ifstream cs_file(computeShader);
-	std::string cs_src((std::istreambuf_iterator<char>(cs_file)), std::istreambuf_iterator<char>());
-
-	const char* cs = cs_src.c_str();
-
-	glShaderSource(cShader, 1, &cs, nullptr);
-	// text data is not needed beyond this point
-
-	glCompileShader(cShader);
-	int compileOk = 0;
-	glGetShaderiv(cShader, GL_COMPILE_STATUS, &compileOk);
-	if(!compileOk)
-	{
-		std::string err = GetShaderInfoLog(cShader);
-		if(allowErrors)
-		{
-			non_fatal_error(err, "Compute Shader");
-		}
-		else
-		{
-			fatal_error(err, "Compute Shader");
-		}
-		return 0;
-	}
-
-	GLuint computeShaderProgram = glCreateProgram();
-	glAttachShader(computeShaderProgram, cShader);
-	glDeleteShader(cShader);
-	if(!allowErrors)
-		CHECK_GL_ERROR();
-
-	if(!linkShaderProgram(computeShaderProgram, allowErrors))
-		return 0;
-
-	return computeShaderProgram;
-}
-
 GLuint loadShaderProgram(const std::string& vertexShader, const std::string& fragmentShader, bool allow_errors)
 {
 	GLuint vShader = glCreateShader(GL_VERTEX_SHADER);
@@ -661,6 +621,49 @@ GLuint loadShaderProgram(const std::string& vertexShader, const std::string& fra
 		return 0;
 
 	return shaderProgram;
+}
+
+GLuint loadComputeShaderProgram(const std::string& computeShader, bool allowErrors) {
+	GLuint cShader = glCreateShader(GL_COMPUTE_SHADER);
+
+	std::ifstream cs_file(computeShader);
+	std::string cs_src((std::istreambuf_iterator<char>(cs_file)), std::istreambuf_iterator<char>());
+
+	const char* cs = cs_src.c_str();
+
+	printf("IN HERE, %d", cs_src.length());
+	std::cout << *cs << "\n\00";
+
+	glShaderSource(cShader, 1, &cs, nullptr);
+	// text data is not needed beyond this point
+
+	glCompileShader(cShader);
+	int compileOk = 0;
+	glGetShaderiv(cShader, GL_COMPILE_STATUS, &compileOk);
+	if(!compileOk)
+	{
+		std::string err = GetShaderInfoLog(cShader);
+		if(allowErrors)
+		{
+			non_fatal_error(err, "Compute Shader");
+		}
+		else
+		{
+			fatal_error(err, "Compute Shader");
+		}
+		return 0;
+	}
+
+	GLuint computeShaderProgram = glCreateProgram();
+	glAttachShader(computeShaderProgram, cShader);
+	glDeleteShader(cShader);
+	if(!allowErrors)
+		CHECK_GL_ERROR();
+
+	if(!linkShaderProgram(computeShaderProgram, allowErrors))
+		return 0;
+
+	return computeShaderProgram;
 }
 
 bool linkShaderProgram(GLuint shaderProgram, bool allow_errors)
