@@ -69,13 +69,9 @@ vec3 worldUp(0.0f, 1.0f, 0.0f);
 ///////////////////////////////////////////////////////////////////////////////
 // Models
 ///////////////////////////////////////////////////////////////////////////////
-labhelper::Model* fighterModel = nullptr;
-labhelper::Model* landingpadModel = nullptr;
 labhelper::Model* sphereModel = nullptr;
 
 mat4 roomModelMatrix;
-mat4 landingPadModelMatrix;
-mat4 fighterModelMatrix;
 
 void loadShaders(bool is_reload)
 {
@@ -108,13 +104,11 @@ void initialize()
 	///////////////////////////////////////////////////////////////////////
 	// Load models and set up model matrices
 	///////////////////////////////////////////////////////////////////////
-	fighterModel = labhelper::loadModelFromOBJ("../scenes/NewShip.obj");
-	landingpadModel = labhelper::loadModelFromOBJ("../scenes/landingpad.obj");
 	sphereModel = labhelper::loadModelFromOBJ("../scenes/sphere.obj");
 
+	lightPosition = cameraPosition + normalize(cameraDirection - cameraPosition) * 11.5f;
+
 	roomModelMatrix = mat4(1.0f);
-	fighterModelMatrix = translate(15.0f * worldUp);
-	landingPadModelMatrix = mat4(1.0f);
 
 	glEnable(GL_DEPTH_TEST); // enable Z-buffering
 	glEnable(GL_CULL_FACE);  // enables backface culling
@@ -157,24 +151,6 @@ void drawScene(GLuint currentShaderProgram,
 
 	// camera
 	labhelper::setUniformSlow(currentShaderProgram, "viewInverse", inverse(viewMatrix));
-
-	// landing pad
-	labhelper::setUniformSlow(currentShaderProgram, "modelViewProjectionMatrix",
-	                          projectionMatrix * viewMatrix * landingPadModelMatrix);
-	labhelper::setUniformSlow(currentShaderProgram, "modelViewMatrix", viewMatrix * landingPadModelMatrix);
-	labhelper::setUniformSlow(currentShaderProgram, "normalMatrix",
-	                          inverse(transpose(viewMatrix * landingPadModelMatrix)));
-
-	labhelper::render(landingpadModel);
-
-	// Fighter
-	labhelper::setUniformSlow(currentShaderProgram, "modelViewProjectionMatrix",
-	                          projectionMatrix * viewMatrix * fighterModelMatrix);
-	labhelper::setUniformSlow(currentShaderProgram, "modelViewMatrix", viewMatrix * fighterModelMatrix);
-	labhelper::setUniformSlow(currentShaderProgram, "normalMatrix",
-	                          inverse(transpose(viewMatrix * fighterModelMatrix)));
-
-	labhelper::render(fighterModel);
 }
 
 
@@ -205,11 +181,6 @@ void display(void)
 	mat4 projMatrix = perspective(radians(45.0f), float(windowWidth) / float(windowHeight), 5.0f, 2000.0f);
 	mat4 viewMatrix = lookAt(cameraPosition, cameraPosition + cameraDirection, worldUp);
 
-	vec4 lightStartPosition = vec4(40.0f, 40.0f, 0.0f, 1.0f);
-	lightPosition = vec3(rotate(currentTime, worldUp) * lightStartPosition);
-	mat4 lightViewMatrix = lookAt(lightPosition, vec3(0.0f), worldUp);
-	mat4 lightProjMatrix = perspective(radians(45.0f), 1.0f, 25.0f, 100.0f);
-
 	///////////////////////////////////////////////////////////////////////////
 	// Draw from camera
 	///////////////////////////////////////////////////////////////////////////
@@ -220,7 +191,6 @@ void display(void)
 
 	{
 		labhelper::perf::Scope s( "Scene" );
-		drawScene( shaderProgram, viewMatrix, projMatrix, lightViewMatrix, lightProjMatrix );
 	}
 	debugDrawLight(viewMatrix, projMatrix, vec3(lightPosition));
 
@@ -370,8 +340,6 @@ int main(int argc, char* argv[])
 		SDL_GL_SwapWindow(g_window);
 	}
 	// Free Models
-	labhelper::freeModel(fighterModel);
-	labhelper::freeModel(landingpadModel);
 	labhelper::freeModel(sphereModel);
 
 	// Shut down everything. This includes the window and all other subsystems.

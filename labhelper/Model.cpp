@@ -560,7 +560,8 @@ void render(const Model* model, const bool submitMaterials)
 			setUniformSlow( current_program, "has_shininess_texture", has_shininess_texture );
 
 		}
-
+		
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		glDrawElements(GL_TRIANGLES, (GLsizei)mesh.m_number_of_indices, GL_UNSIGNED_INT, (const void*)(mesh.m_start_index * sizeof(uint32_t)));
 	}
 	glBindVertexArray(0);
