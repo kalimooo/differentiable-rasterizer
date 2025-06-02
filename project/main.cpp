@@ -77,6 +77,7 @@ mat4 roomModelMatrix;
 // Compute shaders
 ///////////////////////////////////////////////////////////////////////////////
 GLuint vertexSSBO;
+GLuint computeShaderProgram;
 
 void loadShaders(bool is_reload)
 {
@@ -90,6 +91,12 @@ void loadShaders(bool is_reload)
 	if(shader != 0)
 	{
 		shaderProgram = shader;
+	}
+
+	shader = labhelper::loadComputeShaderProgram("../project/parturb.comp", is_reload);
+	if(shader != 0)
+	{
+		computeShaderProgram = shader;
 	}
 }
 
