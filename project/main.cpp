@@ -1,4 +1,3 @@
-
 #ifdef _WIN32
 extern "C" _declspec(dllexport) unsigned int NvOptimusEnablement = 0x00000001;
 #endif
@@ -36,11 +35,15 @@ int windowWidth, windowHeight;
 ivec2 g_prevMouseCoords = { -1, -1 };
 bool g_isMouseDragging = false;
 
+// Toggle for rendering which texture
+bool renderOriginalPerturbed = true;
+
 ///////////////////////////////////////////////////////////////////////////////
 // Shader programs
 ///////////////////////////////////////////////////////////////////////////////
 GLuint shaderProgram;       // Shader for rendering the final image
 GLuint simpleShaderProgram; // Shader used to draw the shadow map
+GLuint fullScreenQuadShaderProgram; // Shader for rendering the full screen quad
 
 ///////////////////////////////////////////////////////////////////////////////
 // Environment
@@ -60,8 +63,8 @@ float point_light_intensity_multiplier = 10000.0f;
 ///////////////////////////////////////////////////////////////////////////////
 // Camera parameters.
 ///////////////////////////////////////////////////////////////////////////////
-vec3 cameraPosition(-70.0f, 50.0f, 70.0f);
-vec3 cameraDirection = normalize(vec3(0.0f) - cameraPosition);
+vec3 cameraPosition(0.0f, 0.0f, 0.0f);
+vec3 cameraDirection = normalize(vec3(0.0f, 0.0f, -1.0f)); 
 float cameraSpeed = 10.f;
 
 vec3 worldUp(0.0f, 1.0f, 0.0f);
@@ -70,14 +73,29 @@ vec3 worldUp(0.0f, 1.0f, 0.0f);
 // Models
 ///////////////////////////////////////////////////////////////////////////////
 labhelper::Model* sphereModel = nullptr;
+labhelper::Model* sphereModelPerturbedOpposite = nullptr;
 
 mat4 roomModelMatrix;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Compute shaders
 ///////////////////////////////////////////////////////////////////////////////
-GLuint vertexSSBO;
+GLuint originalVertexInputSSBO;
+GLuint perturbedOutputSSBO;
+GLuint perturbedOppositeOutputSSBO;
 GLuint computeShaderProgram;
+
+float perturbMag = 0.01f;
+bool perturb = false;
+bool perturbOnce = true;
+bool hasBeenPerturbed = false;
+
+///////////////////////////////////////////////////////////////////////////////
+// Framebuffer Objects
+///////////////////////////////////////////////////////////////////////////////
+FboInfo* fbo1 = nullptr; // FBO for original perturbed sphere
+FboInfo* fbo2 = nullptr; // FBO for oppositely perturbed sphere
+
 
 void loadShaders(bool is_reload)
 {
@@ -98,6 +116,12 @@ void loadShaders(bool is_reload)
 	{
 		computeShaderProgram = shader;
 	}
+
+    shader = labhelper::loadShaderProgram("../project/fullscreenquad.vert", "../project/fullscreenquad.frag", is_reload);
+    if (shader != 0)
+    {
+        fullScreenQuadShaderProgram = shader;
+    }
 }
 
 
@@ -117,18 +141,37 @@ void initialize()
 	// Load models and set up model matrices
 	///////////////////////////////////////////////////////////////////////
 	sphereModel = labhelper::loadModelFromOBJ("../scenes/sphere.obj");
+    sphereModelPerturbedOpposite = labhelper::loadModelFromOBJ("../scenes/sphere.obj");
 
-	lightPosition = cameraPosition + normalize(cameraDirection - cameraPosition) * 11.5f;
+	vec3 initialSphereCenter = cameraPosition + cameraDirection * 100.0f;
+    lightPosition = initialSphereCenter + vec3(0.0f, 20.0f, 0.0f); 
 
 	roomModelMatrix = mat4(1.0f);
 
-	// Create and bind SSBO for vertex positions
-    glGenBuffers(1, &vertexSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, vertexSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, sphereModel->m_positions.size() * sizeof(vec3),
-                 sphereModel->m_positions.data(), GL_DYNAMIC_COPY);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, vertexSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	// Create and bind SSBO for original vertex positions (input to compute shader)
+	glGenBuffers(1, &originalVertexInputSSBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, originalVertexInputSSBO);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sphereModel->m_positions.size() * sizeof(vec3),
+			  sphereModel->m_positions.data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+	// Create and bind SSBO for positively perturbed vertex positions (output from compute shader)
+	glGenBuffers(1, &perturbedOutputSSBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, perturbedOutputSSBO);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sphereModel->m_positions.size() * sizeof(vec3),
+			  sphereModel->m_positions.data(), GL_DYNAMIC_COPY);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+	// Create and bind SSBO for oppositely perturbed vertex positions (output from compute shader)
+	glGenBuffers(1, &perturbedOppositeOutputSSBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, perturbedOppositeOutputSSBO);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sphereModelPerturbedOpposite->m_positions.size() * sizeof(vec3),
+			  sphereModelPerturbedOpposite->m_positions.data(), GL_DYNAMIC_COPY);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+    // Initialize FBOs
+    fbo1 = new FboInfo();
+    fbo2 = new FboInfo();
 
 	glEnable(GL_DEPTH_TEST); // enable Z-buffering
 	glEnable(GL_CULL_FACE);  // enables backface culling
@@ -141,17 +184,27 @@ void perturbVertices() {
 	// For some reason the labhelper version doesn't work??
 	//labhelper::setUniformSlow(shaderProgram, "currentTime", currentTime);
     glUniform1f(glGetUniformLocation(computeShaderProgram, "currentTime"), currentTime);
+	glUniform1f(glGetUniformLocation(computeShaderProgram, "perturbMag"), perturbMag);
 
 	size_t numVertices = sphereModel->m_positions.size();
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, vertexSSBO);
-	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, vertexSSBO);
+
+	// Bind the original vertex data as input
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, originalVertexInputSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, originalVertexInputSSBO);
+
+    // Bind the output buffers
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, perturbedOutputSSBO);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, perturbedOutputSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, perturbedOppositeOutputSSBO);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, perturbedOppositeOutputSSBO);
+
 	glDispatchCompute(numVertices, 1, 1);
 
 	glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-	// Read back modified vertex data
+	// Read back modified vertex data for the first sphere (positively perturbed)
 	std::vector<vec3> updatedPositions(sphereModel->m_positions.size());
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, vertexSSBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, perturbedOutputSSBO);
 	void* ptr = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
 	memcpy(updatedPositions.data(), ptr, updatedPositions.size() * sizeof(vec3));
 	glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
@@ -160,19 +213,29 @@ void perturbVertices() {
 	glBindBuffer(GL_ARRAY_BUFFER, sphereModel->m_positions_bo);
 	glBufferSubData(GL_ARRAY_BUFFER, 0, updatedPositions.size() * sizeof(vec3), updatedPositions.data());
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
-}
 
-void debugDrawLight(const glm::mat4& viewMatrix,
-                    const glm::mat4& projectionMatrix,
-                    const glm::vec3& worldSpaceLightPos)
-{
-	mat4 modelMatrix = glm::translate(worldSpaceLightPos);
-	glUseProgram(shaderProgram);
-	labhelper::setUniformSlow(shaderProgram, "modelViewProjectionMatrix",
-	                          projectionMatrix * viewMatrix * modelMatrix);
-	labhelper::render(sphereModel);
-}
+	// Read back modified vertex data for the second sphere (negatively perturbed)
+    std::vector<vec3> updatedPositionsOpposite(sphereModelPerturbedOpposite->m_positions.size());
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, perturbedOppositeOutputSSBO);
+    ptr = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
+    memcpy(updatedPositionsOpposite.data(), ptr, updatedPositionsOpposite.size() * sizeof(vec3));
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
+    glBindBuffer(GL_ARRAY_BUFFER, sphereModelPerturbedOpposite->m_positions_bo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, updatedPositionsOpposite.size() * sizeof(vec3), updatedPositionsOpposite.data());
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+
+	// TODO probably change this stuff to work with the error from the paper?
+	glBindBuffer(GL_COPY_READ_BUFFER, perturbedOutputSSBO); // Source buffer
+	glBindBuffer(GL_COPY_WRITE_BUFFER, originalVertexInputSSBO); // Destination buffer
+	
+	glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0, sphereModel->m_positions.size() * sizeof(vec3));
+	
+	glBindBuffer(GL_COPY_READ_BUFFER, 0);
+	glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 /// This function is used to draw the main objects on the scene
@@ -180,8 +243,7 @@ void debugDrawLight(const glm::mat4& viewMatrix,
 void drawScene(GLuint currentShaderProgram,
                const mat4& viewMatrix,
                const mat4& projectionMatrix,
-               const mat4& lightViewMatrix,
-               const mat4& lightProjectionMatrix)
+               labhelper::Model* modelToRender)
 {
 	glUseProgram(currentShaderProgram);
 	// Light source
@@ -199,6 +261,12 @@ void drawScene(GLuint currentShaderProgram,
 
 	// camera
 	labhelper::setUniformSlow(currentShaderProgram, "viewInverse", inverse(viewMatrix));
+    
+	mat4 modelMatrix = glm::translate(vec3(0.0f, 0.0f, -7.0f)); 
+    // Render the specified model
+    labhelper::setUniformSlow(currentShaderProgram, "modelViewProjectionMatrix",
+                              projectionMatrix * viewMatrix * modelMatrix * mat4(1.0f));
+    labhelper::render(modelToRender);
 }
 
 
@@ -220,6 +288,8 @@ void display(void)
 		{
 			windowWidth = w;
 			windowHeight = h;
+            fbo1->resize(windowWidth, windowHeight);
+            fbo2->resize(windowWidth, windowHeight);
 		}
 	}
 
@@ -230,20 +300,44 @@ void display(void)
 	mat4 viewMatrix = lookAt(cameraPosition, cameraPosition + cameraDirection, worldUp);
 
 	///////////////////////////////////////////////////////////////////////////
-	// Draw from camera
+	// Render to FBO 1 (original perturbed sphere)
+	///////////////////////////////////////////////////////////////////////////
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo1->framebufferId);
+    glViewport(0, 0, windowWidth, windowHeight);
+    glClearColor(0.2f, 0.2f, 0.8f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    drawScene(shaderProgram, viewMatrix, projMatrix, sphereModel);
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Render to FBO 2 (oppositely perturbed sphere)
+    ///////////////////////////////////////////////////////////////////////////
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo2->framebufferId);
+    glViewport(0, 0, windowWidth, windowHeight);
+    glClearColor(0.8f, 0.2f, 0.2f, 1.0f); // Different clear color to distinguish
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    drawScene(shaderProgram, viewMatrix, projMatrix, sphereModelPerturbedOpposite);
+
+
+	///////////////////////////////////////////////////////////////////////////
+	// Draw to screen using full screen quad (toggleable)
 	///////////////////////////////////////////////////////////////////////////
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, windowWidth, windowHeight);
 	glClearColor(0.2f, 0.2f, 0.8f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	{
-		labhelper::perf::Scope s( "Scene" );
-	}
-	debugDrawLight(viewMatrix, projMatrix, vec3(lightPosition));
+    glUseProgram(fullScreenQuadShaderProgram);
+    glActiveTexture(GL_TEXTURE0);
+
+    if (renderOriginalPerturbed) {
+        glBindTexture(GL_TEXTURE_2D, fbo1->colorTextureTargets[0]);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, fbo2->colorTextureTargets[0]);
+    }
+    labhelper::setUniformSlow(fullScreenQuadShaderProgram, "colorTexture", 0);
+    labhelper::drawFullScreenQuad();
 
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////
 /// This function is used to update the scene according to user input
@@ -271,6 +365,14 @@ bool handleEvents(void)
 			{
 				labhelper::showGUI();
 			}
+		}
+        if(event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_p)
+        {
+            renderOriginalPerturbed = !renderOriginalPerturbed;
+        }
+		if(event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_r)
+		{
+			hasBeenPerturbed = false;
 		}
 		if(event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT
 		   && (!labhelper::isGUIvisible() || !ImGui::GetIO().WantCaptureMouse))
@@ -343,6 +445,11 @@ void gui()
 	// ----------------- Set variables --------------------------
 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate,
 	            ImGui::GetIO().Framerate);
+    ImGui::Text("Press 'P' to toggle between perturbed spheres.");
+	ImGui::Text("Press 'R' to reset peturb count.");
+	ImGui::SliderFloat("perturbMag", &perturbMag, 0.0f, 1.0f);
+	ImGui::Checkbox("Perturb on", &perturb);
+	ImGui::Checkbox("Perturb only once", &perturbOnce);
 	// ----------------------------------------------------------
 
 
@@ -375,8 +482,20 @@ int main(int argc, char* argv[])
 		// Inform imgui of new frame
 		labhelper::newFrame( g_window );
 
-		perturbVertices();
+		// if (count == 100) perturbVertices();
+		// count++;
 
+		if (perturb) {
+			if (perturbOnce) {
+				if (!hasBeenPerturbed) {
+					perturbVertices();
+					hasBeenPerturbed = true;
+				}
+			}
+			else {
+				perturbVertices();
+			}
+		}
 		// render to window
 		display();
 
@@ -391,6 +510,11 @@ int main(int argc, char* argv[])
 	}
 	// Free Models
 	labhelper::freeModel(sphereModel);
+    labhelper::freeModel(sphereModelPerturbedOpposite);
+
+    // Delete FBOs
+    delete fbo1;
+    delete fbo2;
 
 	// Shut down everything. This includes the window and all other subsystems.
 	labhelper::shutDown(g_window);

@@ -2,8 +2,19 @@
 
 layout( local_size_x = 1024, local_size_y = 1, local_size_z = 1 ) in;
 
-layout( std430, binding = 3 ) buffer VertexBuffer {
-    vec3 positions[];
+// Input buffer: original vertex positions
+layout( std430, binding = 0 ) buffer OriginalInputBuffer {
+    vec3 originalPositions[];
+};
+
+// Output buffer 1: positively perturbed positions
+layout( std430, binding = 1 ) buffer PerturbedOutputBuffer {
+    vec3 perturbedPositions[];
+};
+
+// Output buffer 2: negatively perturbed positions
+layout( std430, binding = 2 ) buffer PerturbedOppositeOutputBuffer {
+    vec3 perturbedOppositePositions[];
 };
 
 // Psuedo-random generator courtesy of https://stackoverflow.com/a/17479300
@@ -34,16 +45,25 @@ float floatConstruct( uint m ) {
 float random( float x ) { return floatConstruct(hash(floatBitsToUint(x))); }
 
 uniform float currentTime;
+uniform float perturbMag = 0.01;
 
 void main() {
     uint gid = gl_GlobalInvocationID.x;
-    if (gid >= positions.length()) return;
+    if (gid >= originalPositions.length()) return;
 
-    float randomX = random(currentTime + gid);
-    float randomY = random(currentTime + (gid << 10));
-    float randomZ = random(currentTime + (gid << 20));
+    // Get the original position for this vertex
+    vec3 originalPos = originalPositions[gid];
+
+    float randomX = random(random(currentTime + gid));
+    float randomY = random(random(currentTime + gid) + 1);
+    float randomZ = random(random(currentTime + gid) + 2);
 
     vec3 randomDir = vec3(randomX, randomY, randomZ);
 
-    positions[gid] += randomDir * vec3(0.001);
+    // Perturb for the first output (positively perturbed)
+    perturbedPositions[gid] = originalPos + randomDir * perturbMag;
+    //perturbedPositions[gid] = originalPos + vec3(1.0);
+
+    // Perturb for the second output (negatively perturbed)
+    perturbedOppositePositions[gid] = originalPos - randomDir * perturbMag;
 }
