@@ -20,7 +20,8 @@ using namespace glm;
 #include <Model.h>
 #include "hdr.h"
 #include "fbo.h"
-#include <SOIL2/SOIL2.h>
+#include <iostream>
+#include <stb_image.h>
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -38,6 +39,7 @@ bool g_isMouseDragging = false;
 
 // Toggle for rendering which texture
 bool renderOriginalPerturbed = true;
+bool renderImageTexture = false;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Shader programs
@@ -96,7 +98,47 @@ bool hasBeenPerturbed = false;
 ///////////////////////////////////////////////////////////////////////////////
 FboInfo* fbo1 = nullptr; // FBO for original perturbed sphere
 FboInfo* fbo2 = nullptr; // FBO for oppositely perturbed sphere
+FboInfo* fbo3 = nullptr; // FBO for input image
+GLuint imageTextureId = 0;
 
+GLuint loadImageAsTexture(const std::string& filename) {
+    int width, height, numChannels;
+    unsigned char* data = stbi_load(filename.c_str(), &width, &height, &numChannels, 0);
+
+    if (!data) {
+        std::cerr << "Failed to load image: " << filename << std::endl;
+        return 0;
+    }
+
+    GLuint textureId;
+    glGenTextures(1, &textureId);
+    glBindTexture(GL_TEXTURE_2D, textureId);
+
+    GLenum format;
+    if (numChannels == 1) {
+        format = GL_RED;
+    } else if (numChannels == 3) {
+        format = GL_RGB;
+    } else if (numChannels == 4) {
+        format = GL_RGBA;
+    } else {
+        std::cerr << "Unsupported number of channels: " << numChannels << std::endl;
+        stbi_image_free(data);
+        return 0;
+    }
+
+    glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    stbi_image_free(data); // Free the image data after creating the texture
+    return textureId;
+}
 
 void loadShaders(bool is_reload)
 {
@@ -173,6 +215,9 @@ void initialize()
     // Initialize FBOs
     fbo1 = new FboInfo();
     fbo2 = new FboInfo();
+	fbo3 = new FboInfo();
+
+	imageTextureId = loadImageAsTexture("../scenes/tvTestCard.jpg");
 
 	glEnable(GL_DEPTH_TEST); // enable Z-buffering
 	glEnable(GL_CULL_FACE);  // enables backface culling
@@ -332,7 +377,9 @@ void display(void)
 
     if (renderOriginalPerturbed) {
         glBindTexture(GL_TEXTURE_2D, fbo1->colorTextureTargets[0]);
-    } else {
+    } else if (renderImageTexture) {
+		glBindTexture(GL_TEXTURE_2D, imageTextureId);
+	} else {
         glBindTexture(GL_TEXTURE_2D, fbo2->colorTextureTargets[0]);
     }
     labhelper::setUniformSlow(fullScreenQuadShaderProgram, "colorTexture", 0);
@@ -375,6 +422,13 @@ bool handleEvents(void)
 		{
 			hasBeenPerturbed = false;
 		}
+		if(event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_i)
+        {
+            renderImageTexture = !renderImageTexture;
+            if (renderImageTexture) {
+                renderOriginalPerturbed = false;
+            }
+        }
 		if(event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT
 		   && (!labhelper::isGUIvisible() || !ImGui::GetIO().WantCaptureMouse))
 		{
@@ -447,6 +501,7 @@ void gui()
 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate,
 	            ImGui::GetIO().Framerate);
     ImGui::Text("Press 'P' to toggle between perturbed spheres.");
+	ImGui::Text("Press 'I' to render Image Texture.");
 	ImGui::Text("Press 'R' to reset peturb count.");
 	ImGui::SliderFloat("perturbMag", &perturbMag, 0.0f, 1.0f);
 	ImGui::Checkbox("Perturb on", &perturb);
