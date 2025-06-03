@@ -20,6 +20,7 @@ using namespace glm;
 #include <Model.h>
 #include "hdr.h"
 #include "fbo.h"
+#include <SOIL2/SOIL2.h>
 
 
 ///////////////////////////////////////////////////////////////////////////////
