@@ -96,14 +96,17 @@ bool hasBeenPerturbed = false;
 ///////////////////////////////////////////////////////////////////////////////
 // Framebuffer Objects
 ///////////////////////////////////////////////////////////////////////////////
-FboInfo* fbo1 = nullptr; // FBO for original perturbed sphere
-FboInfo* fbo2 = nullptr; // FBO for oppositely perturbed sphere
-FboInfo* fbo3 = nullptr; // FBO for input image
-GLuint imageTextureId = 0;
+FboInfo* posPerturbedFBO = nullptr; // FBO for original perturbed sphere
+FboInfo* negPerturbedFBO = nullptr; // FBO for oppositely perturbed sphere
+FboInfo* inputImageFBO = nullptr; // FBO for input image
 
+// Temporary texture to hold the loaded image from file before rendering it to inputImageFBO
+GLuint loadedImageTempTextureId = 0; 
+
+// Function to load image into a GLuint texture
 GLuint loadImageAsTexture(const std::string& filename) {
     int width, height, numChannels;
-    unsigned char* data = stbi_load(filename.c_str(), &width, &height, &numChannels, 0);
+    unsigned char* data = stbi_load(filename.c_str(), &width, &height, &numChannels, STBI_rgb_alpha);
 
     if (!data) {
         std::cerr << "Failed to load image: " << filename << std::endl;
@@ -114,29 +117,16 @@ GLuint loadImageAsTexture(const std::string& filename) {
     glGenTextures(1, &textureId);
     glBindTexture(GL_TEXTURE_2D, textureId);
 
-    GLenum format;
-    if (numChannels == 1) {
-        format = GL_RED;
-    } else if (numChannels == 3) {
-        format = GL_RGB;
-    } else if (numChannels == 4) {
-        format = GL_RGBA;
-    } else {
-        std::cerr << "Unsupported number of channels: " << numChannels << std::endl;
-        stbi_image_free(data);
-        return 0;
-    }
-
-    glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     glBindTexture(GL_TEXTURE_2D, 0);
-    stbi_image_free(data); // Free the image data after creating the texture
+    stbi_image_free(data);
     return textureId;
 }
 
@@ -213,11 +203,13 @@ void initialize()
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     // Initialize FBOs
-    fbo1 = new FboInfo();
-    fbo2 = new FboInfo();
-	fbo3 = new FboInfo();
+    posPerturbedFBO = new FboInfo();
+    negPerturbedFBO = new FboInfo();
+	inputImageFBO = new FboInfo();
 
-	imageTextureId = loadImageAsTexture("../scenes/tvTestCard.jpg");
+	// Load the image into a temporary texture. It will be rendered to inputImageFBO later.
+	loadedImageTempTextureId = loadImageAsTexture("../scenes/tvTestCard.jpg");
+
 
 	glEnable(GL_DEPTH_TEST); // enable Z-buffering
 	glEnable(GL_CULL_FACE);  // enables backface culling
@@ -334,8 +326,9 @@ void display(void)
 		{
 			windowWidth = w;
 			windowHeight = h;
-            fbo1->resize(windowWidth, windowHeight);
-            fbo2->resize(windowWidth, windowHeight);
+            posPerturbedFBO->resize(windowWidth, windowHeight);
+            negPerturbedFBO->resize(windowWidth, windowHeight);
+            inputImageFBO->resize(windowWidth, windowHeight);
 		}
 	}
 
@@ -348,7 +341,7 @@ void display(void)
 	///////////////////////////////////////////////////////////////////////////
 	// Render to FBO 1 (original perturbed sphere)
 	///////////////////////////////////////////////////////////////////////////
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo1->framebufferId);
+    glBindFramebuffer(GL_FRAMEBUFFER, posPerturbedFBO->framebufferId);
     glViewport(0, 0, windowWidth, windowHeight);
     glClearColor(0.2f, 0.2f, 0.8f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -357,11 +350,25 @@ void display(void)
     ///////////////////////////////////////////////////////////////////////////
     // Render to FBO 2 (oppositely perturbed sphere)
     ///////////////////////////////////////////////////////////////////////////
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo2->framebufferId);
+    glBindFramebuffer(GL_FRAMEBUFFER, negPerturbedFBO->framebufferId);
     glViewport(0, 0, windowWidth, windowHeight);
     glClearColor(0.8f, 0.2f, 0.2f, 1.0f); // Different clear color to distinguish
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     drawScene(shaderProgram, viewMatrix, projMatrix, sphereModelPerturbedOpposite);
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Render loaded image to FBO 3 (to match resolution)
+    ///////////////////////////////////////////////////////////////////////////
+    glBindFramebuffer(GL_FRAMEBUFFER, inputImageFBO->framebufferId);
+    glViewport(0, 0, windowWidth, windowHeight);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glUseProgram(fullScreenQuadShaderProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, loadedImageTempTextureId);
+    labhelper::setUniformSlow(fullScreenQuadShaderProgram, "colorTexture", 0);
+    labhelper::drawFullScreenQuad();
 
 
 	///////////////////////////////////////////////////////////////////////////
@@ -376,11 +383,11 @@ void display(void)
     glActiveTexture(GL_TEXTURE0);
 
     if (renderOriginalPerturbed) {
-        glBindTexture(GL_TEXTURE_2D, fbo1->colorTextureTargets[0]);
+        glBindTexture(GL_TEXTURE_2D, posPerturbedFBO->colorTextureTargets[0]);
     } else if (renderImageTexture) {
-		glBindTexture(GL_TEXTURE_2D, imageTextureId);
+		glBindTexture(GL_TEXTURE_2D, inputImageFBO->colorTextureTargets[0]);
 	} else {
-        glBindTexture(GL_TEXTURE_2D, fbo2->colorTextureTargets[0]);
+        glBindTexture(GL_TEXTURE_2D, negPerturbedFBO->colorTextureTargets[0]);
     }
     labhelper::setUniformSlow(fullScreenQuadShaderProgram, "colorTexture", 0);
     labhelper::drawFullScreenQuad();
@@ -569,8 +576,11 @@ int main(int argc, char* argv[])
     labhelper::freeModel(sphereModelPerturbedOpposite);
 
     // Delete FBOs
-    delete fbo1;
-    delete fbo2;
+    delete posPerturbedFBO;
+    delete negPerturbedFBO;
+    delete inputImageFBO;
+
+    glDeleteTextures(1, &loadedImageTempTextureId);
 
 	// Shut down everything. This includes the window and all other subsystems.
 	labhelper::shutDown(g_window);
