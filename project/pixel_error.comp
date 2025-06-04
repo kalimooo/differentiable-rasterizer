@@ -1,0 +1,31 @@
+#version 430
+
+layout( local_size_x = 16, local_size_y = 16, local_size_z = 1 ) in;
+
+layout( std430, binding = 0 ) buffer PerturbedOutputBuffer {
+    vec3 perturbedPixels[];
+};
+
+layout( std430, binding = 1 ) buffer PerturbedOppositeOutputBuffer {
+    vec3 perturbedOppositePixels[];
+};
+
+layout (std430, binding = 2 ) buffer pixelErrorBuffer {
+    float pixelError;
+}
+
+layout (std430, binding = 3 ) buffer pixelOppositeErrorBuffer {
+    float pixelOppositeError;
+}
+
+void main() {
+    uvec2 gid = gl_GlobalInvocationID.xy;
+    if (gid >= originalPositions.length()) return;
+
+    // TODO calculate the actual pixel error for the perturbed outputs...
+    float error = 0.1;
+    atomicAdd(pixelError, error);
+
+    float oppositeError = 0.2;
+    atomicAdd(pixelOppositeError, oppositeError);
+}
